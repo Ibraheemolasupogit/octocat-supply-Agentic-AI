@@ -175,14 +175,13 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 1
       }
       volumes: [
         {
           name: 'appdata'
-          storageType: 'AzureFile'
-          storageName: persistentStorage.name
+          storageType: 'EmptyDir'
         }
       ]
     }
@@ -270,7 +269,7 @@ output frontendUrl string = 'https://${frontend.properties.configuration.ingress
 @description('Internal API URL, accessible through the frontend reverse proxy.')
 output apiInternalUrl string = 'http://${api.properties.configuration.ingress.fqdn}'
 
-@description('Azure Files share for persistent SQLite data.')
+@description('Retained Azure Files share; not mounted by the API.')
 output sqliteShareName string = fileShare.name
 
 @description('Container Apps Environment name.')

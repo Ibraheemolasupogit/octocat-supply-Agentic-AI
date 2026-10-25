@@ -4,11 +4,13 @@
 
 The prepared deployment uses Azure Container Apps Consumption for a public frontend and a private API, with a single Container Apps environment. The frontend's Nginx server reverse-proxies `/api/*` and API documentation requests over the environment's internal network, so the API does not need public ingress. Container images are published to GHCR; no Azure Container Registry is provisioned.
 
-The API database is SQLite. The Bicep template creates a Standard LRS StorageV2 account and a 1 GiB SMB Azure Files share, mounts it at `/app/data`, and sets `DB_FILE=/app/data/app.db`. The API is constrained to one replica and single active revision, and `DB_ENABLE_WAL=false` avoids SQLite WAL sidecar files on a network-mounted share. The Docker Compose configuration uses a named volume and the same rollback-journal setting.
+The API database is SQLite. The Bicep template sets `DB_FILE=/app/data/app.db` and mounts a replica-scoped `EmptyDir` at `/app/data`; it does not mount Azure Files. The API uses one active revision and exactly one replica (`minReplicas: 1`, `maxReplicas: 1`) so it does not scale to zero. `DB_ENABLE_WAL=false` keeps SQLite in its default journal mode. The Docker Compose configuration uses a named volume and the same setting.
 
-**SQLite/Azure Files is intended only for this low-traffic rehearsal.** A single writer and one active replica are required; the SMB-backed filesystem adds latency and does not provide database-service guarantees. This is not a highly available or production-grade database design. Back up the share before testing destructive operations and keep a separate copy of data that must survive resource-group deletion. Move to a managed relational database or another supported persistence design before scaling or relying on production data.
+**SQLite on `EmptyDir` is a temporary rehearsal workaround, not durable persistence.** It avoids SQLite locking over SMB, and cart data remains available through requests and container restarts within the same replica. The database is lost if Container Apps replaces the replica, scales it in, or deploys a new revision. The minimum replica of one also means continuous idle compute charges; the prior UK South estimate was approximately **$7.80/month** for 0.25 vCPU/0.5 GiB, before credits, tax, and active-use charges. Verify current pricing before deployment. Use a managed relational database or another durable supported design before relying on production data.
 
-The Container Apps environment sends container logs to a Log Analytics workspace with 30-day retention. Both apps use scale-to-zero and at most one replica to avoid idle compute charges. Azure Files, Log Analytics ingestion, Container Apps resource usage, and network egress can still incur charges.
+The Bicep template still declares the existing StorageV2 account, Azure Files share, and Container Apps storage mapping, but the API no longer mounts that share. This change does not delete, inspect, back up, or migrate any existing share contents. The share could contain the previous SQLite database or other data; review and preserve it under separate approval before any future cleanup or migration. Data in the share is not visible to the API using the new `EmptyDir`.
+
+The Container Apps environment sends container logs to a Log Analytics workspace with 30-day retention. The frontend retains scale-to-zero; the API remains at one replica to keep its replica-scoped database available, at ongoing compute cost. Azure Files, Log Analytics ingestion, Container Apps resource usage, and network egress can also incur charges.
 
 ## GitHub Actions
 
@@ -24,7 +26,7 @@ Before a deployment is possible, a repository administrator must:
 4. Add these GitHub repository **variables** (not client secrets): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`, and `AZURE_APP_PREFIX`.
 5. Set the two GHCR packages (`<repository>-api` and `<repository>-frontend`) to public so Container Apps can pull the images without registry credentials. Confirm this visibility decision before publishing images.
 
-The workflow does not store an Azure client secret. Container Apps uses the Storage account key to mount Azure Files; the key is obtained during the Bicep deployment and is not emitted as a deployment output or GitHub variable. The storage account is dedicated to this share to limit the key's data scope. Resource-group Contributor can retrieve resource keys, so keep the deployment identity and resource group narrowly scoped.
+The workflow does not store an Azure client secret. The retained Container Apps Azure Files storage mapping uses the Storage account key; the key is obtained during Bicep deployment and is not emitted as a deployment output or GitHub variable. The API does not mount this mapping after the EmptyDir change. The storage account is dedicated to the share to limit the key's data scope. Resource-group Contributor can retrieve resource keys, so keep the deployment identity and resource group narrowly scoped.
 
 Microsoft currently documents Azure Files SMB managed-identity authentication for Container Apps as a preview. It requires enabling SMB identity authentication on the storage account and assigning the environment identity the **Storage File Data SMB MI Admin** role at storage-account scope (`roleAssignments/write`). The template uses the supported account-key mount instead; switching to managed identity would require explicit IAM approval and deployment validation.
 
@@ -53,11 +55,11 @@ gh run list --workflow "Build and publish container images"
 gh workflow run deploy.yml --ref main --field image_tag=sha-<full-40-character-commit-hash>
 ```
 
-The deploy workflow creates the Container Apps environment, workspace, storage account/share, API, and frontend in the dedicated group. The workflow summary reports the public frontend URL and internal API ingress. Post-deployment checks exercise frontend health, the product endpoint, cart creation, a persisted cart read, and item removal.
+The deploy workflow creates the Container Apps environment, workspace, storage account/share, API, and frontend in the dedicated group. The workflow summary reports the public frontend URL and internal API ingress. Post-deployment checks exercise frontend health, the product endpoint, cart creation, a cart read, and item removal; they do not verify durability across a replica replacement or new revision.
 
 ## Verification, recovery, and teardown
 
-Before serving real data, test create/update/remove and persistence through an API revision restart, and arrange regular backups of the Azure Files share. The automated smoke test confirms persistence across requests but does not prove persistence across an Azure restart or backup recovery.
+Before deployment, determine whether the existing Azure Files share contains data and obtain separate approval before inspecting, exporting, or changing it. With EmptyDir, verify create/update/remove and persistence across requests and a container restart in the same replica. Do not treat this as persistence across replica replacement or a new revision. If durable data is required, stop and adopt an approved database migration plan instead.
 
 To remove a deployment, first export any data that must be retained. Then, after confirming the resource group contains only this rehearsal's resources, an authorized operator can remove the whole group:
 

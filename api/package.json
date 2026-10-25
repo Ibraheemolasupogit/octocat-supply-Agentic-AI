@@ -4,9 +4,8 @@
 	"main": "dist/index.js",
 	"scripts": {
 		"build": "tsc",
-		"start": "npm run start:install",
-		"start:install": "npm run db:seed && node dist/index.js",
-		"dev": "npm run db:seed:dev && tsx src/index.ts",
+		"start": "node dist/index.js",
+		"dev": "tsx src/index.ts",
 		"test": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"lint": "eslint .",
