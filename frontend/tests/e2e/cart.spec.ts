@@ -16,7 +16,7 @@ test.describe('Persistent guest cart', () => {
     await page.getByRole('button', { name: `Add 1 ${productName} to cart` }).click();
     await expect(page.getByRole('status')).toContainText('Product added to your cart.');
 
-    await page.getByRole('link', { name: 'My Cart' }).click();
+    await page.getByRole('navigation').getByRole('link', { name: 'My Cart' }).click();
     const quantityLabel = `Quantity of ${productName}`;
     await expect(page.getByLabel(quantityLabel)).toHaveText('1');
 
