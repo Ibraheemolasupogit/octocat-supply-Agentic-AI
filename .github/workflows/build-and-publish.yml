@@ -1,71 +1,78 @@
-name: 🐳 Build and Publish
+name: Build and publish container images
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["🧪 CI - Build, Test and Lint"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  build_api:
-    name: Build API
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-      id-token: write
-    uses: msft-common-demos/od-octocat-supply-workflows/.github/workflows/build-publish-containers.yml@main
-    if: |
-      github.actor != 'dependabot[bot]' && 
-      !startsWith(github.head_ref, 'dependabot/')
-    with:
-      service_name: api
-      context_path: ./api
-      dockerfile_path: ./api/Dockerfile
-      registry_url:  "ghcr.io"
-
-  build_frontend:
-    name: Build Frontend
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-      id-token: write
-    uses: msft-common-demos/od-octocat-supply-workflows/.github/workflows/build-publish-containers.yml@main
-    if: |
-      github.actor != 'dependabot[bot]' && 
-      !startsWith(github.head_ref, 'dependabot/')
-    with:
-      service_name: frontend
-      context_path: ./frontend
-      dockerfile_path: ./frontend/Dockerfile
-      registry_url: "ghcr.io"
-
-
-  trigger_deploy:
-    name: Trigger Deployment
-    permissions:
-      actions: write
-    needs: [build_api, build_frontend]
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: Trigger deployment workflow
-        uses: actions/github-script@v8
+      - name: Check out source
+        uses: actions/checkout@v6
         with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'deploy.yml',
-              ref: 'main',
-              inputs: {
-                'api_image': '${{ needs.build_api.outputs.image }}',
-                'api_digest': '${{ needs.build_api.outputs.digest }}',
-                'api_name': '${{ needs.build_api.outputs.name }}',
-                'frontend_image': '${{ needs.build_frontend.outputs.image }}',
-                'frontend_digest': '${{ needs.build_frontend.outputs.digest }}',
-                'frontend_name': '${{ needs.build_frontend.outputs.name }}'
-              }
-            });
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image repository names
+        id: image-names
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_lower=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "repository=$repository_lower" >> "$GITHUB_OUTPUT"
+
+      - name: Generate API image metadata
+        id: api-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.image-names.outputs.repository }}-api
+          tags: |
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
+
+      - name: Build and publish API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: ${{ steps.api-meta.outputs.tags }}
+          labels: ${{ steps.api-meta.outputs.labels }}
+
+      - name: Generate frontend image metadata
+        id: frontend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.image-names.outputs.repository }}-frontend
+          tags: |
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
+
+      - name: Build and publish frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}

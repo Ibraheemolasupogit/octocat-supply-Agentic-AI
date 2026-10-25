@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { useQuery } from 'react-query';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
 import { api } from '../../../api/config';
+import { addItemToCart } from '../../../api/cart';
 import { useTheme } from '../../../context/ThemeContext';
 
 interface Product {
@@ -27,6 +28,12 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showModal, setShowModal] = useState(false);
   const { data: products, isLoading, error } = useQuery('products', fetchProducts);
+  const queryClient = useQueryClient();
+  const addToCartMutation = useMutation(
+    ({ productId, quantity }: { productId: number; quantity: number }) =>
+      addItemToCart(productId, quantity),
+    { onSuccess: () => queryClient.invalidateQueries(['cart']) },
+  );
   const { darkMode } = useTheme();
 
   const filteredProducts = products?.filter(
@@ -52,12 +59,16 @@ export default function Products() {
   const handleAddToCart = (productId: number) => {
     const quantity = quantities[productId] || 0;
     if (quantity > 0) {
-      // TODO: Implement cart functionality
-      alert(`Added ${quantity} items to cart`);
-      setQuantities((prev) => ({
-        ...prev,
-        [productId]: 0,
-      }));
+      addToCartMutation.mutate(
+        { productId, quantity },
+        {
+          onSuccess: () =>
+            setQuantities((prev) => ({
+              ...prev,
+              [productId]: 0,
+            })),
+        },
+      );
     }
   };
 
@@ -103,6 +114,16 @@ export default function Products() {
           >
             Products
           </h1>
+          {addToCartMutation.error != null && (
+            <p role="alert" className="text-red-500">
+              Unable to add this product to your cart. Please try again.
+            </p>
+          )}
+          {addToCartMutation.isSuccess && (
+            <p role="status" className="text-primary">
+              Product added to your cart.
+            </p>
+          )}
 
           <div className="relative">
             <input
@@ -241,7 +262,7 @@ export default function Products() {
                           ? 'bg-primary hover:bg-accent text-white'
                           : `${darkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'} cursor-not-allowed`
                           }`}
-                        disabled={!quantities[product.productId]}
+                        disabled={!quantities[product.productId] || addToCartMutation.isLoading}
                         aria-label={`Add ${quantities[product.productId] || 0} ${product.name} to cart`}
                         id={`add-to-cart-${product.productId}`}
                       >

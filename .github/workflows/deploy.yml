@@ -1,56 +1,150 @@
-name: 🚢 Deploy to Azure
+name: Deploy to Azure Container Apps
 
 on:
   workflow_dispatch:
     inputs:
-      api_image:
-        description: 'API Container Image'
-        required: true
-        type: string
-      api_digest:
-        description: 'API Container Digest (sha256:...)'
-        required: true
-        type: string
-      api_name:
-        description: 'API Package Name'
-        required: true
-        type: string
-      frontend_image:
-        description: 'Frontend Container Image'
-        required: true
-        type: string
-      frontend_digest:
-        description: 'Frontend Container Digest (sha256:...)'
-        required: true
-        type: string
-      frontend_name:
-        description: 'Frontend Package Name'
+      image_tag:
+        description: Full immutable SHA tag from the successful main-branch publish run (sha- followed by 40 lowercase hex characters).
         required: true
         type: string
 
+permissions:
+  contents: read
 
-env:
-  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-  RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
-  DEMO_INSTANCE_NAME: octocat_supply-ideal-octo-capybara
-  DEMO_SLUG: octocat_supply
-  GITHUB_HOSTNAME: "github.com"
-  REGISTRY_HOSTNAME: "ghcr.io"
-  REGISTRY_URL: "https://ghcr.io/${{ github.repository_owner }}"
-  ARTIFACT_URL: "https://github.com/${{ github.repository }}/pkgs/container"
-  CONTAINER_APP_ENVIRONMENT_NAME: octocat-supply-cae
-  CONTAINER_APP_ENVIRONMENT_ID: /subscriptions/408de6dc-726d-4e63-87d3-ef5bbbb30d9e/resourceGroups/dotcom--msft-common-demos--octocat-supply-resources/providers/Microsoft.App/managedEnvironments/octocat-supply-cae
-
+concurrency:
+  group: azure-production-deployment
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Azure deployment disabled
+    if: github.ref == 'refs/heads/main'
+    name: Deploy (requires production environment approval)
     runs-on: ubuntu-latest
-
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.frontendUrl }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_APP_PREFIX: ${{ vars.AZURE_APP_PREFIX }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
     steps:
-      - name: Deployment disabled
-        run: echo "Azure deployment was disabled in demo creation"
-        shell: bash
+      - name: Check out deployment template
+        uses: actions/checkout@v6
 
+      - name: Validate required deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$AZURE_CLIENT_ID" || -z "$AZURE_TENANT_ID" || -z "$AZURE_SUBSCRIPTION_ID" || -z "$AZURE_RESOURCE_GROUP" || -z "$AZURE_LOCATION" || -z "$AZURE_APP_PREFIX" ]]; then
+            echo "::error::One or more required Azure repository variables are missing."
+            exit 1
+          fi
+          if [[ ! "$AZURE_APP_PREFIX" =~ ^[a-z][a-z0-9-]{2,11}$ ]]; then
+            echo "::error::AZURE_APP_PREFIX must be 3-12 lowercase letters, numbers, or hyphens and start with a letter."
+            exit 1
+          fi
+          if [[ ! "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}$ ]]; then
+            echo "::error::image_tag must be an immutable sha-<40 lowercase hex characters> tag."
+            exit 1
+          fi
+
+      - name: Verify both GHCR images are publicly pullable
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          repository_lower=$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          docker manifest inspect "ghcr.io/${repository_lower}-api:${IMAGE_TAG}" >/dev/null
+          docker manifest inspect "ghcr.io/${repository_lower}-frontend:${IMAGE_TAG}" >/dev/null
+
+      - name: Authenticate to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure and containers
+        id: deploy
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          repository_lower=$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          api_image="ghcr.io/${repository_lower}-api:${IMAGE_TAG}"
+          frontend_image="ghcr.io/${repository_lower}-frontend:${IMAGE_TAG}"
+
+          az bicep install
+          az deployment group create \
+            --name "octocat-${GITHUB_RUN_ID}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters \
+              appPrefix="$AZURE_APP_PREFIX" \
+              apiImage="$api_image" \
+              frontendImage="$frontend_image" \
+              location="$AZURE_LOCATION" \
+            --output none
+
+          frontend_url=$(az deployment group show \
+            --name "octocat-${GITHUB_RUN_ID}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.outputs.frontendUrl.value \
+            --output tsv)
+          api_internal_url=$(az deployment group show \
+            --name "octocat-${GITHUB_RUN_ID}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.outputs.apiInternalUrl.value \
+            --output tsv)
+          echo "frontendUrl=$frontend_url" >> "$GITHUB_OUTPUT"
+          echo "apiInternalUrl=$api_internal_url" >> "$GITHUB_OUTPUT"
+          echo "frontendUrl=$frontend_url" >> "$GITHUB_STEP_SUMMARY"
+          echo "API ingress is internal: $api_internal_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify public health and cart API workflow
+        shell: bash
+        env:
+          FRONTEND_URL: ${{ steps.deploy.outputs.frontendUrl }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 18 --retry-delay 10 --retry-all-errors \
+            "$FRONTEND_URL/healthz"
+          curl --fail --silent --show-error --retry 18 --retry-delay 10 --retry-all-errors \
+            "$FRONTEND_URL/api/products" >/dev/null
+          node --input-type=module <<'NODE'
+          const baseUrl = process.env.FRONTEND_URL;
+          const request = async (path, options) => {
+            const response = await fetch(`${baseUrl}${path}`, options);
+            if (!response.ok) {
+              throw new Error(`${options?.method ?? 'GET'} ${path} returned ${response.status}`);
+            }
+            return response.status === 204 ? undefined : response.json();
+          };
+
+          const products = await request('/api/products');
+          if (!Array.isArray(products) || products.length === 0) {
+            throw new Error('Product catalog is empty or malformed');
+          }
+          const productId = products[0].productId;
+          const { cartId } = await request('/api/carts', { method: 'POST' });
+          await request(`/api/carts/${cartId}/items`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ productId, quantity: 2 }),
+          });
+          const persistedCart = await request(`/api/carts/${cartId}`);
+          if (persistedCart.items?.[0]?.quantity !== 2) {
+            throw new Error('Cart item did not persist across API requests');
+          }
+          await request(`/api/carts/${cartId}/items/${productId}`, { method: 'DELETE' });
+          console.log('Frontend health, product API, cart creation, persistence, and removal passed.');
+          NODE

@@ -7,11 +7,13 @@ import orderDetailDeliveryRoutes from './routes/orderDetailDelivery';
 import productRoutes from './routes/product';
 import orderDetailRoutes from './routes/orderDetail';
 import orderRoutes from './routes/order';
+import cartRoutes from './routes/cart';
 import branchRoutes from './routes/branch';
 import headquartersRoutes from './routes/headquarters';
 import supplierRoutes from './routes/supplier';
 import { initializeDatabase } from './init-db';
 import { errorHandler } from './utils/errors';
+import { getDatabase } from './db/sqlite';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -79,12 +81,24 @@ app.use('/api/order-detail-deliveries', orderDetailDeliveryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/order-details', orderDetailRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/carts', cartRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/headquarters', headquartersRoutes);
 app.use('/api/suppliers', supplierRoutes);
 
 app.get('/', (req, res) => {
   res.send('Hello, world!');
+});
+
+app.get('/healthz', async (_req, res) => {
+  try {
+    const database = await getDatabase();
+    await database.get('SELECT 1');
+    res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(503).json({ status: 'unavailable' });
+  }
 });
 
 // Add error handling middleware

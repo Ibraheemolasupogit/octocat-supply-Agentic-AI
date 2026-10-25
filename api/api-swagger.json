@@ -924,6 +924,230 @@
                 }
             }
         },
+        "/api/carts": {
+            "post": {
+                "summary": "Create a cart",
+                "tags": [
+                    "Carts"
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Cart created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cartId": {
+                                            "type": "string",
+                                            "format": "uuid"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carts/{cartId}": {
+            "get": {
+                "summary": "Get a cart and its items",
+                "tags": [
+                    "Carts"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "cartId",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cart with item details and total",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Cart"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Cart not found"
+                    }
+                }
+            }
+        },
+        "/api/carts/{cartId}/items": {
+            "post": {
+                "summary": "Add product quantity to a cart",
+                "tags": [
+                    "Carts"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "cartId",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "productId",
+                                    "quantity"
+                                ],
+                                "properties": {
+                                    "productId": {
+                                        "type": "integer"
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated cart",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Cart"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid product ID or quantity"
+                    },
+                    "404": {
+                        "description": "Cart or product not found"
+                    }
+                }
+            }
+        },
+        "/api/carts/{cartId}/items/{productId}": {
+            "put": {
+                "summary": "Set cart item quantity",
+                "tags": [
+                    "Carts"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "cartId",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "productId",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "quantity"
+                                ],
+                                "properties": {
+                                    "quantity": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated cart",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Cart"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid quantity"
+                    },
+                    "404": {
+                        "description": "Cart or item not found"
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Remove an item from a cart",
+                "tags": [
+                    "Carts"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "cartId",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "productId",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cart after removal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Cart"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Cart or item not found"
+                    }
+                }
+            }
+        },
         "/api/products": {
             "get": {
                 "summary": "Returns all products",
@@ -1231,6 +1455,81 @@
     },
     "components": {
         "schemas": {
+            "Cart": {
+                "type": "object",
+                "required": [
+                    "cartId",
+                    "items",
+                    "total"
+                ],
+                "properties": {
+                    "cartId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CartItem"
+                        }
+                    },
+                    "total": {
+                        "type": "number",
+                        "description": "Total value of all cart items"
+                    }
+                }
+            },
+            "CartItem": {
+                "type": "object",
+                "required": [
+                    "productId",
+                    "name",
+                    "price",
+                    "effectivePrice",
+                    "quantity",
+                    "lineTotal"
+                ],
+                "properties": {
+                    "productId": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "price": {
+                        "type": "number"
+                    },
+                    "effectivePrice": {
+                        "type": "number",
+                        "description": "Unit price after discount, rounded to two decimal places"
+                    },
+                    "imgName": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "sku": {
+                        "type": "string"
+                    },
+                    "unit": {
+                        "type": "string"
+                    },
+                    "discount": {
+                        "type": "number",
+                        "nullable": true
+                    },
+                    "quantity": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "lineTotal": {
+                        "type": "number"
+                    }
+                }
+            },
             "Branch": {
                 "type": "object",
                 "required": [

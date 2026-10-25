@@ -8,9 +8,10 @@ declare global {
 }
 
 const getBaseUrl = () => {
-  // First check runtime configuration (from runtime-config.js)
-  if (typeof window !== 'undefined' && window.RUNTIME_CONFIG?.API_URL) {
-    console.log('Using runtime config API_URL:', window.RUNTIME_CONFIG.API_URL);
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.RUNTIME_CONFIG?.API_URL === 'string'
+  ) {
     return window.RUNTIME_CONFIG.API_URL;
   }
   
@@ -42,5 +43,6 @@ export const api = {
     deliveries: '/api/deliveries',
     orderDetails: '/api/order-details',
     orderDetailDeliveries: '/api/order-detail-deliveries',
+    carts: '/api/carts',
   },
 };

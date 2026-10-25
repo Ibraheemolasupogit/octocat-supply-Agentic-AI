@@ -10,6 +10,10 @@ services:
     environment:
       - NODE_ENV=production
       - PYTHON_ENV=production
+      - DB_FILE=/app/data/app.db
+      - DB_ENABLE_WAL=false
+    volumes:
+      - api_data:/app/data
 
   frontend:
     build:
@@ -22,3 +26,6 @@ services:
     environment:
       - API_HOST=api
       - API_PORT=3000
+
+volumes:
+  api_data:

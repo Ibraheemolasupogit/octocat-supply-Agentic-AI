@@ -53,6 +53,10 @@ api/data/
 *.db-wal
 *.db-shm
 
+# Private keys and PEM material
+*.key
+*.pem
+
 tmp
 
 .agent.log

@@ -22,6 +22,8 @@ The database consists of the following tables:
 - `products` - Product catalog (linked to suppliers)
 - `orders` - Customer orders (linked to branches)
 - `order_details` - Order line items (linked to orders and products)
+- `carts` - Persistent storefront carts
+- `cart_items` - Product quantities associated with carts
 - `deliveries` - Delivery tracking (linked to suppliers)
 - `order_detail_deliveries` - Junction table for order-delivery relationships
 - `migrations` - Database schema version tracking
@@ -279,8 +281,6 @@ The current implementation includes:
 
 Still to implement:
 
-- [ ] Repositories for remaining entities (products, orders, etc.)
-- [ ] Route migration for remaining endpoints
-- [ ] Integration tests
+- [ ] Integration tests for the remaining entity routes (cart and branch routes have in-memory coverage)
 - [ ] Docker configuration updates
 - [ ] Production deployment considerations

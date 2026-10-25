@@ -25,6 +25,7 @@ export default defineConfig({
       name: 'edge',
       use: {
         ...devices['Desktop Edge'],
+        channel: 'msedge',
         launchOptions: {
           ...devices['Desktop Edge'].launchOptions,
           args: ['--headless=new'],

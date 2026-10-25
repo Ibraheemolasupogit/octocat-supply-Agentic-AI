@@ -4,7 +4,7 @@
 
 import { getDatabase, DatabaseConnection } from '../db/sqlite';
 import { Product } from '../models/product';
-import { handleDatabaseError, NotFoundError } from '../utils/errors';
+import { handleDatabaseError, NotFoundError, ValidationError } from '../utils/errors';
 import { buildInsertSQL, buildUpdateSQL, objectToCamelCase, mapDatabaseRows, DatabaseRow } from '../utils/sql';
 
 export class ProductsRepository {
@@ -42,6 +42,7 @@ export class ProductsRepository {
    * Create a new product
    */
   async create(product: Omit<Product, 'productId'>): Promise<Product> {
+    this.validateDiscount(product.discount);
     try {
       const { sql, values } = buildInsertSQL('products', product);
       const result = await this.db.run(sql, values);
@@ -61,6 +62,7 @@ export class ProductsRepository {
    * Update product by ID
    */
   async update(id: number, product: Partial<Omit<Product, 'productId'>>): Promise<Product> {
+    this.validateDiscount(product.discount);
     try {
       const { sql, values } = buildUpdateSQL('products', product, 'product_id = ?');
       const result = await this.db.run(sql, [...values, id]);
@@ -77,6 +79,12 @@ export class ProductsRepository {
       return updatedProduct;
     } catch (error) {
       handleDatabaseError(error, 'Product', id);
+    }
+  }
+
+  private validateDiscount(discount: number | undefined): void {
+    if (discount !== undefined && (!Number.isFinite(discount) || discount < 0 || discount > 1)) {
+      throw new ValidationError('Product discount must be between 0 and 1');
     }
   }
 
@@ -131,7 +139,8 @@ export class ProductsRepository {
   async findByName(name: string): Promise<Product[]> {
     try {
       const rows = await this.db.all<DatabaseRow>(
-        `SELECT * FROM products WHERE name LIKE '%${name}%' ORDER BY name`,
+        'SELECT * FROM products WHERE name LIKE ? ORDER BY name',
+        [`%${name}%`],
       );
       return mapDatabaseRows<Product>(rows);
     } catch (error) {
@@ -152,6 +161,10 @@ export async function createProductsRepository(
 let productsRepo: ProductsRepository | null = null;
 
 export async function getProductsRepository(isTest: boolean = false): Promise<ProductsRepository> {
+  const isTestEnv = isTest || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+  if (isTestEnv) {
+    return createProductsRepository(true);
+  }
   if (!productsRepo) {
     productsRepo = await createProductsRepository(isTest);
   }
