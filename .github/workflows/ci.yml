@@ -105,6 +105,8 @@ jobs:
   e2e:
     name: Browser E2E - Chromium
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.57.0-noble
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
@@ -125,10 +127,6 @@ jobs:
     - name: Install frontend dependencies
       working-directory: frontend
       run: npm ci
-
-    - name: Install Playwright Chromium
-      working-directory: frontend
-      run: npx playwright install --with-deps chromium
 
     - name: Run browser E2E tests
       working-directory: frontend
