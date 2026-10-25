@@ -17,14 +17,15 @@ test.describe('Persistent guest cart', () => {
     await expect(page.getByRole('status')).toContainText('Product added to your cart.');
 
     await page.getByRole('navigation').getByRole('link', { name: 'My Cart' }).click();
+    await expect(page.getByRole('heading', { name: 'My Cart' })).toBeVisible();
     const quantityLabel = `Quantity of ${productName}`;
-    await expect(page.getByLabel(quantityLabel)).toHaveText('1');
+    await expect(page.getByLabel(quantityLabel, { exact: true })).toHaveText('1');
 
     await page.getByRole('button', { name: `Increase quantity of ${productName}` }).click();
-    await expect(page.getByLabel(quantityLabel)).toHaveText('2');
+    await expect(page.getByLabel(quantityLabel, { exact: true })).toHaveText('2');
 
     await page.reload();
-    await expect(page.getByLabel(quantityLabel)).toHaveText('2');
+    await expect(page.getByLabel(quantityLabel, { exact: true })).toHaveText('2');
 
     await page.getByRole('button', { name: `Remove ${productName} from cart` }).click();
     await expect(page.getByText('Your cart is empty.')).toBeVisible();
